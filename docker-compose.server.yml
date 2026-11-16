@@ -1,0 +1,67 @@
+# AI HR Employee (Starter) on a server behind Traefik (our DEV: hr-starter.dev.fyntralink.com).
+# Not needed on your own machine: there, docker-compose.yml is enough.
+#
+#   cp .env.server.example .env.server   # fill it; never commit .env.server
+#   docker compose --env-file .env.server -p hr-starter -f docker-compose.server.yml up -d --build
+#
+# No host ports: the only way in is Traefik on 443. The database lives on a private network.
+
+services:
+  app:
+    build: .
+    image: hr-starter:server
+    restart: unless-stopped
+    env_file: .env.server
+    environment:
+      SEED_DEMO: "true"
+    volumes:
+      - files:/var/www/html/storage/app/private
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [web, internal]
+    stop_grace_period: 70s
+    deploy:
+      resources:
+        limits: { memory: 320M }
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=web
+      - "traefik.http.routers.hrstarter.rule=Host(`${APP_HOST:?set APP_HOST in .env.server}`)"
+      - traefik.http.routers.hrstarter.entrypoints=websecure
+      - traefik.http.routers.hrstarter.tls.certresolver=le
+      - traefik.http.services.hrstarter.loadbalancer.server.port=80
+      - traefik.http.middlewares.hrstarter-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.hrstarter-headers.headers.frameDeny=true
+      - traefik.http.middlewares.hrstarter-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.hrstarter-headers.headers.referrerPolicy=strict-origin-when-cross-origin
+      - traefik.http.routers.hrstarter.middlewares=hrstarter-headers
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-starter}
+      POSTGRES_USER: ${DB_USERNAME:-starter}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env.server}
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks: [internal]
+    deploy:
+      resources:
+        limits: { memory: 192M }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-starter} -d ${DB_DATABASE:-starter}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pg-data:
+  files:
+
+networks:
+  web:
+    external: true
+  internal: {}
