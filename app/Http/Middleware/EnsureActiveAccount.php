@@ -26,7 +26,8 @@ class EnsureActiveAccount
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
-            return redirect()->route('login');
+            // a full load, so the page drops the signed-in route list (see AuthenticatedSessionController)
+            return \Inertia\Inertia::location(route('login'));
         }
 
         if ($user->must_change_password && ! $request->routeIs('password.edit', 'password.update', 'logout', 'locale.update')) {

@@ -51,4 +51,31 @@ class AuthenticationTest extends TestCase
         $this->assertGuest();
         $response->assertRedirect('/');
     }
+
+    /**
+     * The browser signs in through Inertia, so a plain redirect would keep the login page's route list
+     * (guests get only theirs, config/ziggy.php) and the dashboard would open blank. Signing in and out
+     * must answer with a full page load (409 + X-Inertia-Location), which writes the right list.
+     */
+    public function test_signing_in_and_out_from_the_browser_reloads_the_page()
+    {
+        $user = User::factory()->create();
+        $inertia = ['X-Inertia' => 'true', 'X-Requested-With' => 'XMLHttpRequest'];
+
+        $in = $this->withHeaders($inertia)->post('/login', ['email' => $user->email, 'password' => 'password']);
+        $in->assertStatus(409);
+        $this->assertStringEndsWith('/dashboard', $in->headers->get('X-Inertia-Location'));
+        $this->assertAuthenticated();
+        $this->flushHeaders();
+
+        // the full load after it carries the signed-in routes
+        $this->assertStringContainsString('"dashboard"', $this->get('/dashboard')->assertOk()->getContent());
+
+        $out = $this->withHeaders($inertia)->post('/logout');
+        $out->assertStatus(409);
+        $this->assertSame(url('/'), $out->headers->get('X-Inertia-Location'));
+        $this->assertGuest();
+        $this->flushHeaders();
+        $this->assertStringNotContainsString('"dashboard"', $this->get('/login')->getContent());
+    }
 }
